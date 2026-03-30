@@ -23,18 +23,21 @@ typedef struct {
 } p_t;
 
 volatile int run = 1;
+static unsigned int fast_seed = 0;
 
 void sig(int s) { run = 0; }
 
 // Fast random generator for tiny packets
 unsigned int fast_rand() {
-    static unsigned int seed = time(0);
-    seed = seed * 1103515245 + 12345;
-    return (unsigned int)(seed >> 16);
+    fast_seed = fast_seed * 1103515245 + 12345;
+    return (unsigned int)(fast_seed >> 16);
 }
 
 void *wk(void *a) {
     p_t *p = (p_t*)a;
+    
+    // Initialize seed per thread
+    fast_seed = time(0) ^ (unsigned int)(pthread_self() * 1103515245);
     
     // Create raw socket for maximum performance
     int s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -92,6 +95,9 @@ void *wk(void *a) {
 }
 
 int main(int c, char **v) {
+    // Initialize seed in main
+    fast_seed = time(0);
+    
     signal(SIGINT, sig);
     
     time_t t; time(&t);
