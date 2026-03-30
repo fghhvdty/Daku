@@ -52,9 +52,7 @@ void *wk(void *a) {
     setsockopt(s, SOL_SOCKET, SO_SNDBUF, &buf_size, sizeof(buf_size));
     setsockopt(s, SOL_SOCKET, SO_RCVBUF, &buf_size, sizeof(buf_size));
     
-    // Disable Nagle for UDP (already off, but ensure)
-    int flag = 1;
-    setsockopt(s, IPPROTO_UDP, UDP_NODELAY, &flag, sizeof(flag));
+    // Disable Nagle for UDP (TCP option, skip for UDP)
     
     struct sockaddr_in target = {0};
     target.sin_family = AF_INET;
