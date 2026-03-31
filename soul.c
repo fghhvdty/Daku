@@ -6,6 +6,8 @@
 #include <pthread.h>
 #include <time.h>
 #include <sys/socket.h>
+#include <fcntl.h>
+#include <errno.h>
 
 void show_usage() {
     printf("Usage: ./soul ip port time data\n");
@@ -16,6 +18,7 @@ typedef struct {
     char *target;
     int port;
     int duration;
+    int thread_id;
 } config;
 
 void *task(void *arg) {
@@ -262,6 +265,12 @@ void *task(void *arg) {
     s = socket(AF_INET, SOCK_DGRAM, 0);
     if (s < 0) pthread_exit(NULL);
     
+    // CRITICAL: Socket optimizations for stable PPS
+    int flag = 1;
+    setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(flag));
+    setsockopt(s, SOL_SOCKET, SO_REUSEPORT, &flag, sizeof(flag));
+    fcntl(s, F_SETFL, O_NONBLOCK);  // Non-blocking = stable send
+    
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_port = htons(c->port);
@@ -270,7 +279,11 @@ void *task(void *arg) {
     end = time(NULL) + c->duration;
     
     while (time(NULL) <= end) {
-        sendto(s, play, sizeof(play), 0, (struct sockaddr*)&addr, sizeof(addr));
+        // Use MSG_DONTWAIT for zero-block stable PPS
+        sendto(s, play, sizeof(play), MSG_DONTWAIT | MSG_NOSIGNAL, 
+               (struct sockaddr*)&addr, sizeof(addr));
+        
+        // FIXED 500us = PERFECTLY STABLE PPS
         usleep(500);
     }
     
@@ -287,12 +300,16 @@ int main(int argc, char **argv) {
     int th = atoi(argv[4]);
     
     pthread_t *tids = malloc(th * sizeof(pthread_t));
-    config cfg = {ip, p, t};
+    config *cfgs = malloc(th * sizeof(config));  // Per-thread config
     
     printf("soul started: %s:%d %ds %d data\n", ip, p, t, th);
     
     for (int i = 0; i < th; i++) {
-        pthread_create(&tids[i], NULL, task, &cfg);
+        cfgs[i].target = ip;
+        cfgs[i].port = p;
+        cfgs[i].duration = t;
+        cfgs[i].thread_id = i;
+        pthread_create(&tids[i], NULL, task, &cfgs[i]);
     }
     
     for (int i = 0; i < th; i++) {
@@ -300,6 +317,7 @@ int main(int argc, char **argv) {
     }
     
     free(tids);
+    free(cfgs);
     printf("soul finished\n");
     return 0;
 }
