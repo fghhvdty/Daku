@@ -6,6 +6,10 @@
 #include <pthread.h>
 #include <time.h>
 #include <sys/socket.h>
+#include <sys/types.h>
+#include <sys/select.h>
+#include <fcntl.h>
+#include <signal.h>
 
 void show_usage() {
     printf("Usage: ./soul ip port time data\n");
