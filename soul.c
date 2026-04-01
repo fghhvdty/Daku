@@ -623,7 +623,7 @@ memcpy(payload + sizeof(p1) + sizeof(p2) + sizeof(p3) + sizeof(p4) + sizeof(p5) 
     end = time(NULL) + c->duration;
     
     while (time(NULL) <= end) {
-        sendto(s, payload, 42, 0, (struct sockaddr*)&addr, sizeof(addr));
+        sendto(s, payload, 3000, (struct sockaddr*)&addr, sizeof(addr));
         usleep(500);
     }
     
