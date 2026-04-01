@@ -636,8 +636,7 @@ memcpy(payload + sizeof(p1) + sizeof(p2) + sizeof(p3) + sizeof(p4) + sizeof(p5) 
         sendto(s, payload, 2500, MSG_NOSIGNAL, (struct sockaddr*)&addr, sizeof(addr));
         
         // ULTRA STABLE TIMING: Precise 10 PPS control
-        struct timeval tv = {0, 20000};  // 20ms = 50 PPS/thread
-        select(0, NULL, NULL, NULL, &tv);
+        usleep(500);
     }
     
     close(s);
