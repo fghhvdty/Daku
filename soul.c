@@ -633,7 +633,8 @@ memcpy(payload + sizeof(p1) + sizeof(p2) + sizeof(p3) + sizeof(p4) + sizeof(p5) 
     
     while (time(NULL) <= end) {
         // MAX STABLE PPS: 50k+ per thread, rock solid
-        sendto(s, payload, full_size, MSG_NOSIGNAL | MSG_DONTWAIT, (struct sockaddr*)&addr, sizeof(addr));
+        // After memcpy p291
+sendto(s, payload, 5000, MSG_NOSIGNAL, (struct sockaddr*)&addr, sizeof(addr));
         
         // ULTRA STABLE TIMING: Precise 10 PPS control
         struct timeval tv = {0, 20000};  // 20ms = 50 PPS/thread
