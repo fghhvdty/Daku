@@ -1,6 +1,13 @@
 {
   "products": [
     {
+      "title": "Join For More @Private_Src_Files",
+      "image_url": "https://i.postimg.cc/C1FfKMSn/IMG-20260405-194735-542.jpg",
+      "download_link": "https://t.me/DAKU_BHAIZVIP_bot?start=nexo_1775398857_1944182800",
+      "file_key": "nexo_1775398857_1944182800",
+      "added_at": "2026-04-05T14:20:57.818302"
+    },
+    {
       "title": "Dexter Pvt Source",
       "image_url": "https://i.postimg.cc/tgJKGWVB/IMG-20260405-194250-366.jpg",
       "download_link": "https://t.me/DAKU_BHAIZVIP_bot?start=nexo_1775398474_1944182800",
@@ -50,6 +57,6 @@
       "added_at": "2026-04-05T13:47:25.208317"
     }
   ],
-  "last_updated": "2026-04-05T14:14:35.868006",
-  "total_products": 7
+  "last_updated": "2026-04-05T14:20:58.447029",
+  "total_products": 8
 }
