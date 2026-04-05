@@ -1,6 +1,13 @@
 {
   "products": [
     {
+      "title": "Dexter Pvt Source",
+      "image_url": "https://i.postimg.cc/tgJKGWVB/IMG-20260405-194250-366.jpg",
+      "download_link": "https://t.me/DAKU_BHAIZVIP_bot?start=nexo_1775398474_1944182800",
+      "file_key": "nexo_1775398474_1944182800",
+      "added_at": "2026-04-05T14:14:35.249094"
+    },
+    {
       "title": "WALL HACK 4.3 BY NEXOMODS",
       "image_url": "https://i.postimg.cc/Y0FkKgZT/IMG-20260405-194050-949.jpg",
       "download_link": "https://t.me/DAKU_BHAIZVIP_bot?start=nexo_1775398316_1944182800",
@@ -43,6 +50,6 @@
       "added_at": "2026-04-05T13:47:25.208317"
     }
   ],
-  "last_updated": "2026-04-05T14:11:58.013870",
-  "total_products": 6
+  "last_updated": "2026-04-05T14:14:35.868006",
+  "total_products": 7
 }
