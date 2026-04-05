@@ -3,66 +3,83 @@ import json
 import logging
 import base64
 import requests
+import ssl
+import asyncio
 from datetime import datetime
-from telegram import Update
+from telegram import Update, Bot
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 from pymongo import MongoClient
+from pymongo.errors import ConfigurationError
 
 # ========== CONFIGURATION ==========
 BOT_TOKEN = "7718352742:AAG1H680asb9vpfsazZZQdp59vNkx2PjGbw"
 ADMIN_ID = 1944182800
 
-# MongoDB Config
 MONGO_URI = "mongodb+srv://rishi:ipxkingyt@rishiv.ncljp.mongodb.net/?retryWrites=true&w=majority&appName=rishiv"
 DB_NAME = "nexo_bot"
 FILES_COLLECTION = "stored_files"
 
-# GitHub Config
 GITHUB_TOKEN = "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"
-REPO_OWNER = "fghhvdty"
-REPO_NAME = "Daku"
-RAW_URL = f"https://raw.githubusercontent.com/fghhvdty/Daku/refs/heads/main/File.json"
 GITHUB_API_URL = f"https://api.github.com/repos/fghhvdty/Daku/contents/File.json?ref=main"
+RAW_URL = f"https://raw.githubusercontent.com/fghhvdty/Daku/refs/heads/main/File.json"
 
-# States
+# Conversation states
 WAITING_FOR_FILE = 1
 WAITING_FOR_IMAGE_URL = 2
 WAITING_FOR_TITLE = 3
 
 temp_upload = {}
 
-logging.basicConfig(
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
-
-# ========== MONGODB ==========
+# MongoDB Connection
 def connect_mongodb():
     try:
         client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
         client.admin.command('ping')
-        print("✅ MongoDB Connected!")
+        print("✅ MongoDB Connected Successfully!")
         return client
-    except Exception as e:
-        print(f"❌ MongoDB Error: {e}")
+    except:
+        print("❌ MongoDB connection failed - using local storage")
         return None
 
 client = connect_mongodb()
-if client:
+MONGODB_AVAILABLE = client is not None
+
+if MONGODB_AVAILABLE:
     db = client[DB_NAME]
     files_collection = db[FILES_COLLECTION]
-    MONGODB_AVAILABLE = True
 else:
-    MONGODB_AVAILABLE = False
-    files_db = {}
+    LOCAL_STORAGE_FILE = "local_files.json"
+    def load_local_files():
+        if os.path.exists(LOCAL_STORAGE_FILE):
+            with open(LOCAL_STORAGE_FILE, "r") as f:
+                return json.load(f)
+        return {}
+    
+    def save_local_files(files):
+        with open(LOCAL_STORAGE_FILE, "w") as f:
+            json.dump(files, f, indent=2)
+    
+    files_db = load_local_files()
 
-def save_file(file_key, file_data):
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+def save_file_to_db(file_key, file_data):
     if MONGODB_AVAILABLE:
         try:
+            doc = {
+                "file_key": file_key,
+                "title": file_data["title"],
+                "file_id": file_data["file_id"],
+                "file_name": file_data["file_name"],
+                "created_at": datetime.now()
+            }
             files_collection.update_one(
                 {"file_key": file_key},
-                {"$set": {**file_data, "created_at": datetime.now()}},
+                {"$set": doc},
                 upsert=True
             )
             return True
@@ -70,67 +87,92 @@ def save_file(file_key, file_data):
             return False
     else:
         files_db[file_key] = file_data
+        save_local_files(files_db)
         return True
 
-def get_file(file_key):
+def get_file_from_db(file_key):
     if MONGODB_AVAILABLE:
         try:
             doc = files_collection.find_one({"file_key": file_key})
-            return {"title": doc["title"], "file_id": doc["file_id"], "file_name": doc["file_name"]} if doc else None
+            if doc:
+                return {
+                    "title": doc["title"],
+                    "file_id": doc["file_id"],
+                    "file_name": doc["file_name"]
+                }
         except:
-            return None
+            pass
     else:
         return files_db.get(file_key)
+    return None
 
 def get_all_files():
     if MONGODB_AVAILABLE:
-        files = {}
-        for doc in files_collection.find():
-            files[doc["file_key"]] = {"title": doc["title"], "file_id": doc["file_id"], "file_name": doc["file_name"]}
-        return files
+        try:
+            files = {}
+            for doc in files_collection.find():
+                files[doc["file_key"]] = {
+                    "title": doc["title"],
+                    "file_id": doc["file_id"],
+                    "file_name": doc["file_name"]
+                }
+            return files
+        except:
+            return {}
     else:
         return files_db
 
-# ========== GITHUB ==========
-def update_github(products_list):
+def update_github_file(products_list):
     content = json.dumps({"products": products_list}, indent=2)
-    encoded = base64.b64encode(content.encode()).decode()
+    encoded_content = base64.b64encode(content.encode()).decode()
     
-    headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
+    headers = {
+        "Authorization": f"token {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json"
+    }
     
     try:
-        resp = requests.get(GITHUB_API_URL, headers=headers, timeout=10)
-        sha = resp.json().get("sha") if resp.status_code == 200 else None
+        response = requests.get(GITHUB_API_URL, headers=headers, timeout=10)
+        sha = None
+        if response.status_code == 200:
+            data = response.json()
+            sha = data.get("sha")
         
-        data = {"message": f"Update - {datetime.now()}", "content": encoded, "sha": sha}
-        put_resp = requests.put(GITHUB_API_URL, headers=headers, json=data, timeout=10)
-        return put_resp.status_code == 200
-    except Exception as e:
-        logger.error(f"GitHub error: {e}")
+        data = {
+            "message": f"Update products - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            "content": encoded_content,
+            "sha": sha
+        }
+        
+        put_response = requests.put(GITHUB_API_URL, headers=headers, json=data, timeout=10)
+        return put_response.status_code == 200
+    except:
         return False
 
-def get_products():
+def get_current_products():
     try:
-        resp = requests.get(RAW_URL, timeout=10)
-        return resp.json().get("products", [])
+        response = requests.get(RAW_URL, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        return data.get("products", [])
     except:
         return []
 
-# ========== BOT COMMANDS ==========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    args = context.args
     
-    if args and len(args) > 0:
+    args = context.args
+    if args:
         file_key = args[0]
-        file_data = get_file(file_key)
+        file_data = get_file_from_db(file_key)
         
         if file_data:
             try:
                 await context.bot.send_document(
                     chat_id=user_id,
                     document=file_data['file_id'],
-                    caption=f"📁 {file_data['title']}\n\nSource: NEXO MODS"
+                    caption=f"📁 {file_data['title']}\n\nSource: NEXO MODS",
+                    filename=file_data['file_name']
                 )
                 return
             except Exception as e:
@@ -139,124 +181,126 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if user_id == ADMIN_ID:
         total_files = len(get_all_files())
-        products = get_products()
+        products = get_current_products()
+        
         await update.message.reply_text(
             f"🎯 Admin Panel\n\n"
-            f"/upload - Add product\n"
+            f"/upload - Upload product\n"
             f"/list - List products\n"
             f"/delete <pos> - Delete\n"
-            f"/stats - Stats\n"
-            f"/files - Show files\n\n"
-            f"Files: {total_files}\n"
-            f"Products: {len(products)}\n"
-            f"Storage: {'MongoDB' if MONGODB_AVAILABLE else 'Local'}"
+            f"/files - Show files\n"
+            f"/stats - Stats\n\n"
+            f"Files: {total_files} | Products: {len(products)}"
         )
     else:
-        await update.message.reply_text("🤖 NEXO MODS File Bot\n\nUse app to download files!")
+        await update.message.reply_text("🤖 NEXO MODS File Bot")
 
 async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("❌ Admin only!")
         return ConversationHandler.END
     
-    temp_upload[update.effective_user.id] = {}
-    await update.message.reply_text("📤 Step 1/3: Send FILE\nSend /cancel")
+    user_id = update.effective_user.id
+    temp_upload[user_id] = {}
+    
+    await update.message.reply_text("📤 Step 1/3: Send FILE")
     return WAITING_FOR_FILE
 
 async def receive_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
-    msg = update.message
+    user_id = update.effective_user.id
     
-    if msg.document:
-        temp_upload[uid]['file_id'] = msg.document.file_id
-        temp_upload[uid]['file_name'] = msg.document.file_name
-    else:
-        await update.message.reply_text("❌ Send document file!")
-        return WAITING_FOR_FILE
-    
-    await update.message.reply_text("✅ Step 2/3: Send IMAGE URL\nSend /cancel")
-    return WAITING_FOR_IMAGE_URL
-
-async def receive_image_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
-    url = update.message.text.strip()
-    
-    if not url.startswith("http"):
-        await update.message.reply_text("❌ Valid URL required!")
+    if update.message.document:
+        temp_upload[user_id] = {
+            'file_id': update.message.document.file_id,
+            'file_name': update.message.document.file_name
+        }
+        await update.message.reply_text(f"✅ File: {update.message.document.file_name}\nStep 2/3: Send IMAGE URL")
         return WAITING_FOR_IMAGE_URL
     
-    temp_upload[uid]['image_url'] = url
-    await update.message.reply_text("✅ Step 3/3: Send TITLE\nSend /cancel")
-    return WAITING_FOR_TITLE
+    await update.message.reply_text("❌ Send document file!")
+    return WAITING_FOR_FILE
+
+async def receive_image_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    image_url = update.message.text.strip()
+    
+    if image_url.startswith("http"):
+        temp_upload[user_id]['image_url'] = image_url
+        await update.message.reply_text("✅ Step 3/3: Send TITLE")
+        return WAITING_FOR_TITLE
+    
+    await update.message.reply_text("❌ Valid URL!")
+    return WAITING_FOR_IMAGE_URL
 
 async def receive_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
+    user_id = update.effective_user.id
     title = update.message.text.strip()
     
     import time
-    file_key = f"file_{int(time.time())}_{uid}"
+    file_key = f"file_{int(time.time())}_{user_id}"
     
     file_data = {
         "title": title,
-        "file_id": temp_upload[uid]['file_id'],
-        "file_name": temp_upload[uid]['file_name']
+        "file_id": temp_upload[user_id]['file_id'],
+        "file_name": temp_upload[user_id]['file_name']
     }
-    save_file(file_key, file_data)
     
-    products = get_products()
-    bot_info = await context.bot.get_me()
+    db_saved = save_file_to_db(file_key, file_data)
     
+    products = get_current_products()
     new_product = {
         "title": title,
-        "image_url": temp_upload[uid]['image_url'],
-        "download_link": f"https://t.me/{bot_info.username}?start={file_key}"
+        "image_url": temp_upload[user_id]['image_url'],
+        "download_link": f"https://t.me/{context.bot.username}?start={file_key}"
     }
-    
     products.insert(0, new_product)
-    success = update_github(products)
     
-    temp_upload.pop(uid, None)
+    github_saved = update_github_file(products)
+    del temp_upload[user_id]
     
-    if success:
-        await update.message.reply_text(f"✅ Added!\n\nTitle: {title}\nID: {file_key}\nTotal: {len(products)}")
-    else:
-        await update.message.reply_text(f"⚠️ Saved but GitHub failed!\nTitle: {title}")
-    
+    status = "✅" if db_saved and github_saved else "⚠️"
+    await update.message.reply_text(
+        f"{status} Added!\n"
+        f"ID: `{file_key}`\n"
+        f"DB: {'✅' if db_saved else '❌'}\n"
+        f"GitHub: {'✅' if github_saved else '❌'}",
+        parse_mode="Markdown"
+    )
     return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    temp_upload.pop(update.effective_user.id, None)
-    await update.message.reply_text("❌ Cancelled")
+    await update.message.reply_text("❌ Cancelled!")
     return ConversationHandler.END
 
-async def list_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def list_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
     
-    products = get_products()
+    products = get_current_products()
     if not products:
-        await update.message.reply_text("No products")
+        await update.message.reply_text("No products!")
         return
     
     msg = "📁 Products:\n\n"
     for i, p in enumerate(products):
-        msg += f"{i+1}. {p.get('title', 'No title')[:40]}\n"
-    await update.message.reply_text(msg)
+        msg += f"{i+1}. `{p.get('title', '')[:40]}`\n"
+    await update.message.reply_text(msg, parse_mode="Markdown")
 
-async def show_stored(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def show_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
     
     files = get_all_files()
     if not files:
-        await update.message.reply_text("No files")
+        await update.message.reply_text("No files!")
         return
     
     msg = f"📦 Files ({len(files)}):\n\n"
-    for k, v in list(files.items())[:20]:
-        msg += f"• {k} - {v['title'][:30]}\n"
-    await update.message.reply_text(msg)
+    for i, (key, data) in enumerate(list(files.items())[:15]):
+        msg += f"{i+1}. `{key}` - {data['title'][:30]}\n"
+    await update.message.reply_text(msg, parse_mode="Markdown")
 
-async def delete_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def delete_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
     
@@ -267,40 +311,41 @@ async def delete_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         pos = int(args[0]) - 1
-        products = get_products()
-        
+        products = get_current_products()
         if 0 <= pos < len(products):
             deleted = products.pop(pos)
-            if update_github(products):
-                await update.message.reply_text(f"✅ Deleted: {deleted.get('title')}")
-            else:
-                await update.message.reply_text("❌ Delete failed")
+            success = update_github_file(products)
+            status = "✅" if success else "❌"
+            await update.message.reply_text(f"{status} Deleted: {deleted.get('title', '')}")
         else:
-            await update.message.reply_text("❌ Position not found")
+            await update.message.reply_text("❌ Invalid position!")
     except:
-        await update.message.reply_text("❌ Invalid number")
+        await update.message.reply_text("❌ Invalid number!")
 
-async def show_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
     
-    products = get_products()
-    files = get_all_files()
+    products = get_current_products()
+    files = len(get_all_files())
+    
     await update.message.reply_text(
-        f"📊 Stats\n\n"
+        f"📊 Stats:\n"
+        f"Files: {files}\n"
         f"Products: {len(products)}\n"
-        f"Files: {len(files)}\n"
         f"Storage: {'MongoDB' if MONGODB_AVAILABLE else 'Local'}"
     )
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Error: {context.error}")
 
-# ========== MAIN ==========
 def main():
+    # **FINAL FIX: Use correct v20.x syntax**
+    print("🚀 Starting bot...")
+    
     app = Application.builder().token(BOT_TOKEN).build()
     
-    conv = ConversationHandler(
+    conv_handler = ConversationHandler(
         entry_points=[CommandHandler("upload", upload_start)],
         states={
             WAITING_FOR_FILE: [MessageHandler(filters.Document.ALL, receive_file)],
@@ -310,16 +355,25 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
     )
     
-    app.add_handler(conv)
+    app.add_handler(conv_handler)
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("list", list_products))
-    app.add_handler(CommandHandler("files", show_stored))
-    app.add_handler(CommandHandler("delete", delete_product))
-    app.add_handler(CommandHandler("stats", show_stats))
+    app.add_handler(CommandHandler("list", list_files))
+    app.add_handler(CommandHandler("files", show_files))
+    app.add_handler(CommandHandler("delete", delete_file))
+    app.add_handler(CommandHandler("stats", stats))
     app.add_error_handler(error_handler)
     
-    print("🤖 Bot is running...")
-    app.run_polling()
+    print("✅ Bot handlers added")
+    print(f"Storage: {'MongoDB' if MONGODB_AVAILABLE else 'Local'}")
+    
+    # **CRITICAL FIX: Use proper polling with read_timeout**
+    app.run_polling(
+        read_timeout=10,
+        write_timeout=10,
+        connect_timeout=10,
+        pool_timeout=10,
+        allowed_updates=Update.ALL_TYPES
+    )
 
 if __name__ == "__main__":
     main()
