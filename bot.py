@@ -7,32 +7,37 @@ import ssl
 from datetime import datetime
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
-from pymongo import MongoClient
-from pymongo.errors import ConfigurationError
-
-# ========== FIX FOR TERMUX DNS ==========
-# Termux mein DNS resolution fix
-os.environ['DNS_RESOLV_CONF'] = '/data/data/com.termux/files/usr/etc/resolv.conf'
-
-# Agar resolv.conf nahi hai toh create karo
-try:
-    resolv_path = '/data/data/com.termux/files/usr/etc/resolv.conf'
-    if not os.path.exists(resolv_path):
-        with open(resolv_path, 'w') as f:
-            f.write("nameserver 8.8.8.8\nnameserver 8.8.4.4\n")
-        print(f"✅ Created {resolv_path}")
-except:
-    pass
 
 # ========== CONFIGURATION ==========
 BOT_TOKEN = "7718352742:AAG1H680asb9vpfsazZZQdp59vNkx2PjGbw"
 ADMIN_ID = 1944182800
 
-# MongoDB Config - SRV connection se direct connection use karo
-MONGO_URI = "mongodb+srv://rishi:ipxkingyt@rishiv.ncljp.mongodb.net/?retryWrites=true&w=majority&appName=rishiv"
-DB_NAME = "nexo_bot"
-COLLECTION_NAME = "products"
-FILES_COLLECTION = "stored_files"
+# Local storage config
+LOCAL_STORAGE_FILE = "local_files.json"
+files_db = {}
+
+# Load local files
+def load_local_files():
+    global files_db
+    if os.path.exists(LOCAL_STORAGE_FILE):
+        try:
+            with open(LOCAL_STORAGE_FILE, "r") as f:
+                files_db = json.load(f)
+        except:
+            files_db = {}
+    else:
+        files_db = {}
+
+# Save local files
+def save_local_files():
+    try:
+        with open(LOCAL_STORAGE_FILE, "w") as f:
+            json.dump(files_db, f, indent=2)
+    except Exception as e:
+        print(f"Local save error: {e}")
+
+# Initialize local storage
+load_local_files()
 
 # GitHub Repository Config
 GITHUB_TOKEN = "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"
@@ -50,148 +55,39 @@ WAITING_FOR_TITLE = 3
 # Temp storage
 temp_upload = {}
 
-# MongoDB Connection with error handling
-def connect_mongodb():
-    """Connect to MongoDB with proper error handling"""
-    try:
-        # Try to connect with DNS resolver fix
-        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
-        # Test connection
-        client.admin.command('ping')
-        print("✅ MongoDB Connected Successfully!")
-        return client
-    except ConfigurationError as e:
-        print(f"⚠️ DNS Error: {e}")
-        print("🔄 Trying alternative connection method...")
-        # Alternative: Use direct IP (if needed)
-        try:
-            client = MongoClient(
-                "mongodb://rishi:ipxkingyt@rishiv.ncljp.mongodb.net:27017/?ssl=true&replicaSet=atlas-xyz&authSource=admin",
-                serverSelectionTimeoutMS=5000,
-                ssl=True,
-                ssl_cert_reqs=ssl.CERT_NONE
-            )
-            client.admin.command('ping')
-            print("✅ MongoDB Connected via alternative method!")
-            return client
-        except Exception as e2:
-            print(f"❌ MongoDB connection failed: {e2}")
-            print("⚠️ Bot will run without MongoDB (files will be stored locally)")
-            return None
-    except Exception as e:
-        print(f"❌ MongoDB connection error: {e}")
-        return None
-
-# Initialize MongoDB client
-client = connect_mongodb()
-
-if client:
-    db = client[DB_NAME]
-    products_collection = db[COLLECTION_NAME]
-    files_collection = db[FILES_COLLECTION]
-    MONGODB_AVAILABLE = True
-else:
-    MONGODB_AVAILABLE = False
-    # Fallback to local file storage
-    LOCAL_STORAGE_FILE = "local_files.json"
-    def load_local_files():
-        if os.path.exists(LOCAL_STORAGE_FILE):
-            with open(LOCAL_STORAGE_FILE, "r") as f:
-                return json.load(f)
-        return {}
-    
-    def save_local_files(files):
-        with open(LOCAL_STORAGE_FILE, "w") as f:
-            json.dump(files, f, indent=2)
-    
-    files_db = load_local_files()
-
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# ========== MONGODB FUNCTIONS (with fallback) ==========
+# ========== LOCAL STORAGE FUNCTIONS ==========
 def save_file_to_db(file_key, file_data):
-    """Save file mapping to MongoDB or local file"""
-    if MONGODB_AVAILABLE:
-        try:
-            doc = {
-                "file_key": file_key,
-                "title": file_data["title"],
-                "file_id": file_data["file_id"],
-                "file_name": file_data["file_name"],
-                "created_at": datetime.now()
-            }
-            files_collection.update_one(
-                {"file_key": file_key},
-                {"$set": doc},
-                upsert=True
-            )
-            logger.info(f"File saved to MongoDB: {file_key}")
-            return True
-        except Exception as e:
-            logger.error(f"MongoDB save error: {e}")
-            return False
-    else:
-        # Fallback to local file
+    """Save file mapping to local file"""
+    try:
         files_db[file_key] = file_data
-        save_local_files(files_db)
+        save_local_files()
         logger.info(f"File saved locally: {file_key}")
         return True
+    except Exception as e:
+        logger.error(f"Local save error: {e}")
+        return False
 
 def get_file_from_db(file_key):
-    """Get file mapping from MongoDB or local file"""
-    if MONGODB_AVAILABLE:
-        try:
-            doc = files_collection.find_one({"file_key": file_key})
-            if doc:
-                return {
-                    "title": doc["title"],
-                    "file_id": doc["file_id"],
-                    "file_name": doc["file_name"]
-                }
-        except Exception as e:
-            logger.error(f"MongoDB fetch error: {e}")
-            return None
-    else:
-        return files_db.get(file_key)
-    return None
+    """Get file mapping from local file"""
+    return files_db.get(file_key)
 
 def get_all_files():
-    """Get all files from MongoDB or local file"""
-    if MONGODB_AVAILABLE:
-        try:
-            files = {}
-            for doc in files_collection.find():
-                files[doc["file_key"]] = {
-                    "title": doc["title"],
-                    "file_id": doc["file_id"],
-                    "file_name": doc["file_name"]
-                }
-            return files
-        except Exception as e:
-            logger.error(f"MongoDB fetch all error: {e}")
-            return {}
-    else:
-        return files_db
+    """Get all files from local file"""
+    return files_db.copy()
 
 def delete_file_from_db(file_key):
-    """Delete file from MongoDB or local file"""
-    if MONGODB_AVAILABLE:
-        try:
-            result = files_collection.delete_one({"file_key": file_key})
-            return result.deleted_count > 0
-        except Exception as e:
-            logger.error(f"MongoDB delete error: {e}")
-            return False
-    else:
-        if file_key in files_db:
-            del files_db[file_key]
-            save_local_files(files_db)
-            return True
-        return False
+    """Delete file from local file"""
+    if file_key in files_db:
+        del files_db[file_key]
+        save_local_files()
+        return True
+    return False
 
 # ========== GITHUB FUNCTIONS ==========
 def update_github_file(products_list):
@@ -302,7 +198,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📊 Database Stats:\n"
             f"• Files in DB: {total_files}\n"
             f"• Products online: {len(products)}\n"
-            f"• Storage: {'MongoDB' if MONGODB_AVAILABLE else 'Local File'}\n\n"
+            f"• Storage: Local File\n\n"
             f"Raw URL: {RAW_URL}"
         )
     else:
@@ -469,7 +365,7 @@ async def show_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("No files stored in database!")
         return
     
-    message = f"📦 Stored Files ({len(files)} total, {'MongoDB' if MONGODB_AVAILABLE else 'Local'}):\n\n"
+    message = f"📦 Stored Files ({len(files)} total, Local):\n\n"
     for key, value in list(files.items())[:20]:
         message += f"• `{key}` - {value['title']}\n"
     
@@ -523,7 +419,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📊 Bot Statistics\n\n"
         f"📦 Database:\n"
         f"• Total files: {total_files}\n"
-        f"• Storage: {'MongoDB' if MONGODB_AVAILABLE else 'Local File'}\n\n"
+        f"• Storage: Local File\n\n"
         f"📁 GitHub:\n"
         f"• Products online: {len(products)}\n"
         f"• Raw URL: {RAW_URL}\n\n"
@@ -558,7 +454,7 @@ def main():
     
     print("\n🤖 Bot is running...")
     print(f"Raw URL: {RAW_URL}")
-    print(f"Storage Mode: {'MongoDB' if MONGODB_AVAILABLE else 'Local File'}")
+    print(f"Storage Mode: Local File")
     print(f"Total files: {len(get_all_files())}")
     
     app.run_polling()
