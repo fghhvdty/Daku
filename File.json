@@ -1,6 +1,14 @@
 {
-  "products": [],
-  "last_updated": "2026-04-05T13:24:58.898243",
-  "total_products": 0,
+  "products": [
+    {
+      "title": "Join For More Private_src_file",
+      "image_url": "https://i.postimg.cc/httcPB11/IMG-20260405-162911-237.jpg",
+      "download_link": "https://t.me/DAKU_BHAIZVIP_bot?start=nexo_1775395536_1944182800",
+      "file_key": "nexo_1775395536_1944182800",
+      "added_at": "2026-04-05T13:25:37.180993"
+    }
+  ],
+  "last_updated": "2026-04-05T13:25:37.443233",
+  "total_products": 1,
   "version": "2.1-fixed"
 }
