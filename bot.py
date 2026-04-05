@@ -7,39 +7,30 @@ import ssl
 from datetime import datetime
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
+from pymongo import MongoClient
+from pymongo.errors import ConfigurationError
+
+# ========== FIX FOR TERMUX DNS ==========
+os.environ['DNS_RESOLV_CONF'] = '/data/data/com.termux/files/usr/etc/resolv.conf'
+
+try:
+    resolv_path = '/data/data/com.termux/files/usr/etc/resolv.conf'
+    if not os.path.exists(resolv_path):
+        with open(resolv_path, 'w') as f:
+            f.write("nameserver 8.8.8.8\nnameserver 8.8.4.4\n")
+        print(f"✅ Created {resolv_path}")
+except:
+    pass
 
 # ========== CONFIGURATION ==========
 BOT_TOKEN = "7718352742:AAG1H680asb9vpfsazZZQdp59vNkx2PjGbw"
 ADMIN_ID = 1944182800
 
-# Local storage config
-LOCAL_STORAGE_FILE = "local_files.json"
-files_db = {}
+MONGO_URI = "mongodb+srv://rishi:ipxkingyt@rishiv.ncljp.mongodb.net/?retryWrites=true&w=majority&appName=rishiv"
+DB_NAME = "nexo_bot"
+COLLECTION_NAME = "products"
+FILES_COLLECTION = "stored_files"
 
-# Load local files
-def load_local_files():
-    global files_db
-    if os.path.exists(LOCAL_STORAGE_FILE):
-        try:
-            with open(LOCAL_STORAGE_FILE, "r") as f:
-                files_db = json.load(f)
-        except:
-            files_db = {}
-    else:
-        files_db = {}
-
-# Save local files
-def save_local_files():
-    try:
-        with open(LOCAL_STORAGE_FILE, "w") as f:
-            json.dump(files_db, f, indent=2)
-    except Exception as e:
-        print(f"Local save error: {e}")
-
-# Initialize local storage
-load_local_files()
-
-# GitHub Repository Config
 GITHUB_TOKEN = "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"
 REPO_OWNER = "fghhvdty"
 REPO_NAME = "Daku"
@@ -55,43 +46,136 @@ WAITING_FOR_TITLE = 3
 # Temp storage
 temp_upload = {}
 
+# MongoDB Connection
+def connect_mongodb():
+    try:
+        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+        client.admin.command('ping')
+        print("✅ MongoDB Connected Successfully!")
+        return client
+    except ConfigurationError as e:
+        print(f"⚠️ DNS Error: {e}")
+        try:
+            client = MongoClient(
+                "mongodb://rishi:ipxkingyt@rishiv.ncljp.mongodb.net:27017/?ssl=true&replicaSet=atlas-xyz&authSource=admin",
+                serverSelectionTimeoutMS=5000,
+                ssl=True,
+                ssl_cert_reqs=ssl.CERT_NONE
+            )
+            client.admin.command('ping')
+            print("✅ MongoDB Connected via alternative method!")
+            return client
+        except Exception as e2:
+            print(f"❌ MongoDB connection failed: {e2}")
+            return None
+    except Exception as e:
+        print(f"❌ MongoDB connection error: {e}")
+        return None
+
+client = connect_mongodb()
+
+if client:
+    db = client[DB_NAME]
+    products_collection = db[COLLECTION_NAME]
+    files_collection = db[FILES_COLLECTION]
+    MONGODB_AVAILABLE = True
+else:
+    MONGODB_AVAILABLE = False
+    LOCAL_STORAGE_FILE = "local_files.json"
+    def load_local_files():
+        if os.path.exists(LOCAL_STORAGE_FILE):
+            with open(LOCAL_STORAGE_FILE, "r") as f:
+                return json.load(f)
+        return {}
+    
+    def save_local_files(files):
+        with open(LOCAL_STORAGE_FILE, "w") as f:
+            json.dump(files, f, indent=2)
+    
+    files_db = load_local_files()
+
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# ========== LOCAL STORAGE FUNCTIONS ==========
 def save_file_to_db(file_key, file_data):
-    """Save file mapping to local file"""
-    try:
+    if MONGODB_AVAILABLE:
+        try:
+            doc = {
+                "file_key": file_key,
+                "title": file_data["title"],
+                "file_id": file_data["file_id"],
+                "file_name": file_data["file_name"],
+                "created_at": datetime.now()
+            }
+            files_collection.update_one(
+                {"file_key": file_key},
+                {"$set": doc},
+                upsert=True
+            )
+            logger.info(f"File saved to MongoDB: {file_key}")
+            return True
+        except Exception as e:
+            logger.error(f"MongoDB save error: {e}")
+            return False
+    else:
         files_db[file_key] = file_data
-        save_local_files()
+        save_local_files(files_db)
         logger.info(f"File saved locally: {file_key}")
         return True
-    except Exception as e:
-        logger.error(f"Local save error: {e}")
-        return False
 
 def get_file_from_db(file_key):
-    """Get file mapping from local file"""
-    return files_db.get(file_key)
+    if MONGODB_AVAILABLE:
+        try:
+            doc = files_collection.find_one({"file_key": file_key})
+            if doc:
+                return {
+                    "title": doc["title"],
+                    "file_id": doc["file_id"],
+                    "file_name": doc["file_name"]
+                }
+        except Exception as e:
+            logger.error(f"MongoDB fetch error: {e}")
+            return None
+    else:
+        return files_db.get(file_key)
+    return None
 
 def get_all_files():
-    """Get all files from local file"""
-    return files_db.copy()
+    if MONGODB_AVAILABLE:
+        try:
+            files = {}
+            for doc in files_collection.find():
+                files[doc["file_key"]] = {
+                    "title": doc["title"],
+                    "file_id": doc["file_id"],
+                    "file_name": doc["file_name"]
+                }
+            return files
+        except Exception as e:
+            logger.error(f"MongoDB fetch all error: {e}")
+            return {}
+    else:
+        return files_db
 
 def delete_file_from_db(file_key):
-    """Delete file from local file"""
-    if file_key in files_db:
-        del files_db[file_key]
-        save_local_files()
-        return True
-    return False
+    if MONGODB_AVAILABLE:
+        try:
+            result = files_collection.delete_one({"file_key": file_key})
+            return result.deleted_count > 0
+        except Exception as e:
+            logger.error(f"MongoDB delete error: {e}")
+            return False
+    else:
+        if file_key in files_db:
+            del files_db[file_key]
+            save_local_files(files_db)
+            return True
+        return False
 
-# ========== GITHUB FUNCTIONS ==========
 def update_github_file(products_list):
-    """Update File.json on GitHub"""
     content = json.dumps({"products": products_list}, indent=2)
     encoded_content = base64.b64encode(content.encode()).decode()
     
@@ -101,45 +185,29 @@ def update_github_file(products_list):
     }
     
     try:
-        # Get current file SHA - CRITICAL FOR UPDATES
         response = requests.get(GITHUB_API_URL, headers=headers, timeout=10)
         sha = None
         if response.status_code == 200:
             data = response.json()
             sha = data.get("sha")
             logger.info(f"Current GitHub file SHA: {sha}")
-        else:
-            logger.warning(f"GitHub GET failed: {response.status_code} - {response.text}")
         
-        # Update file with proper SHA
         data = {
             "message": f"Update products via bot - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             "content": encoded_content,
-            "sha": sha  # This is CRITICAL - without SHA it overwrites
+            "sha": sha
         }
         
         put_response = requests.put(GITHUB_API_URL, headers=headers, json=data, timeout=10)
-        logger.info(f"GitHub PUT response: {put_response.status_code} - {put_response.text[:200]}")
-        
-        if put_response.status_code == 200:
-            logger.info("✅ GitHub file updated successfully!")
-            return True
-        elif put_response.status_code == 422:
-            logger.error("❌ GitHub SHA mismatch - file might have changed externally")
-        else:
-            logger.error(f"❌ GitHub update failed: {put_response.status_code}")
+        logger.info(f"GitHub PUT response: {put_response.status_code}")
         
         return put_response.status_code == 200
         
-    except requests.exceptions.RequestException as e:
-        logger.error(f"❌ GitHub network error: {e}")
-        return False
     except Exception as e:
-        logger.error(f"❌ GitHub update error: {e}")
+        logger.error(f"GitHub update error: {e}")
         return False
 
 def get_current_products():
-    """Fetch current products from GitHub raw URL with retry"""
     for attempt in range(3):
         try:
             response = requests.get(RAW_URL, timeout=10)
@@ -151,15 +219,12 @@ def get_current_products():
         except Exception as e:
             logger.error(f"GitHub fetch attempt {attempt+1} failed: {e}")
             if attempt == 2:
-                logger.error("❌ All GitHub fetch attempts failed")
                 return []
     return []
 
-# ========== BOT COMMANDS ==========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
-    # Check if this is a deep link with file_key (CRITICAL FIX)
     args = context.args
     if args and len(args) > 0:
         file_key = args[0]
@@ -176,13 +241,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     filename=file_data['file_name']
                 )
                 logger.info(f"✅ File sent to user {user_id}: {file_key}")
-                return  # Exit early after sending file
+                return
             except Exception as e:
                 logger.error(f"❌ Error sending file {file_key}: {e}")
                 await update.message.reply_text("❌ Error sending file! Please contact admin.")
                 return
     
-    # Normal start command for admin/non-deep-link users
     if user_id == ADMIN_ID:
         total_files = len(get_all_files())
         products = get_current_products()
@@ -198,7 +262,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📊 Database Stats:\n"
             f"• Files in DB: {total_files}\n"
             f"• Products online: {len(products)}\n"
-            f"• Storage: Local File\n\n"
+            f"• Storage: {'MongoDB' if MONGODB_AVAILABLE else 'Local File'}\n\n"
             f"Raw URL: {RAW_URL}"
         )
     else:
@@ -265,11 +329,9 @@ async def receive_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     temp_upload[user_id]['title'] = title
     
-    # Generate unique file key
     import time
     file_key = f"file_{int(time.time())}_{user_id}"
     
-    # Save to database FIRST
     file_data = {
         "title": title,
         "file_id": temp_upload[user_id]['file_id'],
@@ -281,27 +343,20 @@ async def receive_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Database save failed! Try again.")
         return ConversationHandler.END
     
-    # Get current products from GitHub - CRITICAL
     logger.info("Fetching current products from GitHub...")
     products = get_current_products()
-    logger.info(f"Found {len(products)} existing products")
     
-    # Create new product
     new_product = {
         "title": title,
         "image_url": temp_upload[user_id]['image_url'],
         "download_link": f"https://t.me/{context.bot.username}?start={file_key}"
     }
     
-    # Add at TOP (index 0) - NEW ITEM FIRST
     products.insert(0, new_product)
-    logger.info(f"Added new product. Total now: {len(products)}")
     
-    # Update GitHub - CRITICAL STEP
     logger.info("Updating GitHub...")
     success = update_github_file(products)
     
-    # Clear temp
     temp_upload.pop(user_id, None)
     
     if success and db_saved:
@@ -348,13 +403,11 @@ async def list_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = f"📁 Products ({len(products)} total):\n\n"
     for i, product in enumerate(products):
         title = product.get('title', 'No title')[:50]
-        link = product.get('download_link', 'No link')
         message += f"{i+1}. `{title}`\n"
     
     await update.message.reply_text(message, parse_mode="Markdown")
 
 async def show_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show all stored files from database"""
     if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("❌ Admin only!")
         return
@@ -365,7 +418,7 @@ async def show_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("No files stored in database!")
         return
     
-    message = f"📦 Stored Files ({len(files)} total, Local):\n\n"
+    message = f"📦 Stored Files ({len(files)} total, {'MongoDB' if MONGODB_AVAILABLE else 'Local'}):\n\n"
     for key, value in list(files.items())[:20]:
         message += f"• `{key}` - {value['title']}\n"
     
@@ -419,7 +472,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📊 Bot Statistics\n\n"
         f"📦 Database:\n"
         f"• Total files: {total_files}\n"
-        f"• Storage: Local File\n\n"
+        f"• Storage: {'MongoDB' if MONGODB_AVAILABLE else 'Local File'}\n\n"
         f"📁 GitHub:\n"
         f"• Products online: {len(products)}\n"
         f"• Raw URL: {RAW_URL}\n\n"
@@ -429,9 +482,9 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Update {update} caused error {context.error}")
 
-# ========== MAIN ==========
 def main():
-    app = Application.builder().token(BOT_TOKEN).build()
+    # **FIXED: Use correct v21.0+ syntax**
+    application = Application.builder().token(BOT_TOKEN).build()
     
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("upload", upload_start)],
@@ -443,21 +496,21 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
     )
     
-    # CRITICAL: Proper handler order
-    app.add_handler(conv_handler)  # Conversation first
-    app.add_handler(CommandHandler("start", start))  # Start handles deep links
-    app.add_handler(CommandHandler("list", list_files))
-    app.add_handler(CommandHandler("files", show_files))
-    app.add_handler(CommandHandler("delete", delete_file))
-    app.add_handler(CommandHandler("stats", stats))
-    app.add_error_handler(error_handler)
+    application.add_handler(conv_handler)
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("list", list_files))
+    application.add_handler(CommandHandler("files", show_files))
+    application.add_handler(CommandHandler("delete", delete_file))
+    application.add_handler(CommandHandler("stats", stats))
+    application.add_error_handler(error_handler)
     
     print("\n🤖 Bot is running...")
     print(f"Raw URL: {RAW_URL}")
-    print(f"Storage Mode: Local File")
+    print(f"Storage Mode: {'MongoDB' if MONGODB_AVAILABLE else 'Local File'}")
     print(f"Total files: {len(get_all_files())}")
     
-    app.run_polling()
+    # **FIXED: Use application.run_polling()**
+    application.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
