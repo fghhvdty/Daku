@@ -1,6 +1,13 @@
 {
   "products": [
     {
+      "title": "WALL HACK 4.3 BY NEXOMODS",
+      "image_url": "https://i.postimg.cc/Y0FkKgZT/IMG-20260405-194050-949.jpg",
+      "download_link": "https://t.me/DAKU_BHAIZVIP_bot?start=nexo_1775398316_1944182800",
+      "file_key": "nexo_1775398316_1944182800",
+      "added_at": "2026-04-05T14:11:57.381574"
+    },
+    {
       "title": "BGMI 4.3 PRIVATE SRC X64",
       "image_url": "https://i.postimg.cc/C1yqpCQ1/IMG-20260405-193345-406.jpg",
       "download_link": "https://t.me/DAKU_BHAIZVIP_bot?start=nexo_1775398021_1944182800",
@@ -36,6 +43,6 @@
       "added_at": "2026-04-05T13:47:25.208317"
     }
   ],
-  "last_updated": "2026-04-05T14:07:03.105019",
-  "total_products": 5
+  "last_updated": "2026-04-05T14:11:58.013870",
+  "total_products": 6
 }
