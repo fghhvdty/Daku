@@ -1,6 +1,13 @@
 {
   "products": [
     {
+      "title": "VIP_x_SOURCE",
+      "image_url": "https://i.postimg.cc/tJJ4Vwyw/IMG-20260409-133843-582.jpg",
+      "download_link": "https://t.me/DAKU_BHAIZVIP_bot?start=nexo_1775722428_1944182800",
+      "file_key": "nexo_1775722428_1944182800",
+      "added_at": "2026-04-09T08:13:49.398553"
+    },
+    {
       "title": "Skin Src 4.3 By NexoMods",
       "image_url": "https://i.postimg.cc/jdrCqdcg/IMG-20260405-195151-364.jpg",
       "download_link": "https://t.me/DAKU_BHAIZVIP_bot?start=nexo_1775399031_1944182800",
@@ -64,6 +71,6 @@
       "added_at": "2026-04-05T13:47:25.208317"
     }
   ],
-  "last_updated": "2026-04-05T14:23:52.307097",
-  "total_products": 9
+  "last_updated": "2026-04-09T08:13:50.090931",
+  "total_products": 10
 }
