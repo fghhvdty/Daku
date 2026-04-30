@@ -1,0 +1,3 @@
+{
+    "postStartCommand": "cd /workspaces/Daku && nohup python3 daku.py >> daku.log 2>&1 &"
+}
