@@ -1,0 +1,9 @@
+{
+  "products": [
+    {
+      "title": "MOD NAME",
+      "image_url": "https://image-link.jpg",
+      "download_link": "https://download-link.dat"
+    }
+  ]
+}
