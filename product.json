@@ -2,8 +2,18 @@
   "products": [
     {
       "title": "ONLY HEADSHOT",
-      "image_url": "https://i.postimg.cc/Y2Wy0qhp/Screenshot-20260525-095402.png",
+      "image_url": "https://i.posting.cc/Y2Wy0q",
       "download_link": "https://github.com/fghhvdty/Daku/releases/download/Headshot/global-metadata.dat"
+    },
+    {
+      "title": "SHOP LOCATION",
+      "image_url": "https://i.postimg.cc/1XvP7p2N/Screenshot-20260525-115123.png",
+      "download_link": "https://github.com/fghhvdty/Daku/releases/download/Location/global-metadata.dat"
+    },
+    {
+      "title": "MAGIC BULLET",
+      "image_url": "https://i.postimg.cc/C1v6WmML/Screenshot-20260525-115131.png",
+      "download_link": "https://github.com/fghhvdty/Daku/releases/download/Magic/global-metadata.dat"
     }
   ]
 }
