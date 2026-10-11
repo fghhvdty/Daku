@@ -6,8 +6,8 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, CallbackContext
 
 # Configuration constants
-TELEGRAM_BOT_TOKEN = '7960283920:AAHul_6tNoU3sCL2taqTrdOYWTNOpxJu1wY'  # Replace with your Telegram Bot Token
-ADMIN_USER_ID = 1944182800  # Replace with your Telegram User ID
+TELEGRAM_BOT_TOKEN = '8501026131:AAFy7z_Gcd5pjoVfBYBsxsS3Jlf0ykIDPJQ'  # Replace with your Telegram Bot Token
+ADMIN_USER_ID = 8546199829  # Replace with your Telegram User ID
 USERS_FILE = 'users.json'
 USERS_CPP_FILE = 'users.cpp'
 RESTRICTED_PORTS = {"17500", "20000", "20001", "20002", "20003"}
